@@ -12,7 +12,7 @@ def lm(residual: Callable, theta_0: Tensor, *args: Any, jac_mode : str = "forwar
     theta = theta_0.clone()
     lam = lam_0
     r = residual(theta,*args)
-    loss = (r**2).mean()
+    loss = (r**2).sum()
     for i in range(num_iter):
         if verbose:
             print(f"At iter {i}: {lam=}, loss = {loss.item()}")
@@ -20,11 +20,11 @@ def lm(residual: Callable, theta_0: Tensor, *args: Any, jac_mode : str = "forwar
         J = jac(theta,*args)
         n,m = J.shape
         JTJ = J.mT@J
-        damp = lam*(torch.eye(m)+torch.diag(torch.diag(JTJ)))
+        damp = lam*(torch.eye(m,device=JTJ.device)+torch.diag(torch.diag(JTJ)))
         step = torch.linalg.solve(JTJ+damp,-J.mT@r)
         theta = theta + step
         new_r = residual(theta,*args)
-        new_loss = (new_r**2).mean()
+        new_loss = (new_r**2).sum()
         if (loss-new_loss).abs() < ftol:
             if verbose:
                 print("ftol, stopping")
@@ -54,14 +54,28 @@ def test_residual3(theta, target, A):
     return A@(theta**2+theta)-target
 
 if __name__ == "__main__":
-    theta = torch.randn(1000)
-    target = torch.randn(10)
-    A = torch.randn(10,1000)
-    #lm(test_residual, theta, target)
-    #lm(test_residual3, theta, target, A, verbose=True, L=1, lam_0=10)
+    m,n = 500, 500
+    theta = torch.randn(n).cuda()
+    target = torch.randn(m).cuda()
+    A = torch.randn(m,n).cuda()
     import time
     t0 = time.perf_counter()
-    lm(test_residual3, theta, target, A, verbose=True, jac_mode="forward")
+    lm(test_residual3, theta, target, A, verbose=True, jac_mode="forward",num_iter=500)
     t1 = time.perf_counter()
     print(t1-t0)
-    #lm(test_residual3, theta, target, A, verbose=True, lam_momentum=0.5)
+
+    from scipy.optimize import least_squares
+    import numpy as np
+    theta = np.random.randn(n)
+    target = np.random.randn(m)
+    A = np.random.randn(m,n)
+    t0 = time.perf_counter()
+    lm_res = least_squares(test_residual3,
+                            theta.copy(),
+                            args=(target, A),
+                            method='lm',
+                            xtol=1e-15,
+                            verbose=True,
+                        )
+    t1 = time.perf_counter()
+    print(t1-t0)
