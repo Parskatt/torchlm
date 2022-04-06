@@ -14,7 +14,7 @@ def lm(residual: Callable, theta_0: Tensor, *args: Any, jac_mode : str = "forwar
     r = residual(theta,*args)
     loss = (r**2).sum()
     for i in range(num_iter):
-        if verbose:
+        if verbose and (i % 10 == 0):
             print(f"At iter {i}: {lam=}, loss = {loss.item()}")
         # If jacobian is sparse, this is quite inefficient.
         J = jac(theta,*args)
@@ -44,6 +44,47 @@ def lm(residual: Callable, theta_0: Tensor, *args: Any, jac_mode : str = "forwar
     return theta
 
 
+def gd(residual: Callable, theta_0: Tensor, *args: Any, lr : float = 1e-3, 
+       num_iter: int = 100, verbose = False, ftol = 1e-6):
+    theta = theta_0.clone().requires_grad_()
+    r = residual(theta,*args)
+    loss = (r**2).sum()
+    for i in range(num_iter):
+        if verbose and (i % 10 == 0):
+            print(f"At iter {i}: {lr=}, loss = {loss.item()}")
+        grad = torch.autograd.grad(loss,theta)[0]
+        step = -lr * grad
+        theta = theta + step
+        new_r = residual(theta,*args)
+        new_loss = (new_r**2).sum()
+        if (loss-new_loss).abs() < ftol:
+            if verbose:
+                print("ftol, stopping")
+            break
+        loss, r = new_loss, new_r
+    return theta
+
+def adam(residual: Callable, theta_0: Tensor, *args: Any, lr : float = 1e-3, 
+       num_iter: int = 100, verbose = False, ftol = 1e-6):
+    theta = theta_0.clone().requires_grad_()
+    optim = torch.optim.Adam([theta])
+    r = residual(theta,*args)
+    loss = (r**2).sum()
+    for i in range(num_iter):
+        if verbose and (i % 10 == 0):
+            print(f"At iter {i}: {lr=}, loss = {loss.item()}")
+        loss.backward()
+        optim.step()
+        optim.zero_grad()
+        new_r = residual(theta,*args)
+        new_loss = (new_r**2).sum()
+        if (loss-new_loss).abs() < ftol:
+            if verbose:
+                print("ftol, stopping")
+            break
+        loss, r = new_loss, new_r
+    return theta
+
 def test_residual(theta, target):
     return theta-target
 
@@ -59,11 +100,13 @@ if __name__ == "__main__":
     target = torch.randn(m).cuda()
     A = torch.randn(m,n).cuda()
     import time
+    adam(test_residual3, theta, target, A, verbose=True,num_iter=500, lr = 1e-3)
+    gd(test_residual3, theta, target, A, verbose=True,num_iter=500, lr = 1e-5)
     t0 = time.perf_counter()
     lm(test_residual3, theta, target, A, verbose=True, jac_mode="forward",num_iter=500)
     t1 = time.perf_counter()
     print(t1-t0)
-
+    exit()
     from scipy.optimize import least_squares
     import numpy as np
     theta = np.random.randn(n)
